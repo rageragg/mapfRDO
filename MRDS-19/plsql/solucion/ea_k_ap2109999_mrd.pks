@@ -48,6 +48,10 @@ create or replace package ea_k_ap2109999_mrd as
    -- Modif.: Se modifica el procedimiento p_inserta_g2000510
    --       : se agrega el cursor para que automaticamente
    --       : incluya el proceso de exclusion de polizas
+   -- Fecha : 24/01/2022
+   -- Modif.: Se crea el proceso de validacion de gestor luego
+   --         de la pre-renovacion y renovacion
+   --         p_valida_gestor
    -- ----------------------------------------------------------   
    --
    /* --------------------------------------------------------

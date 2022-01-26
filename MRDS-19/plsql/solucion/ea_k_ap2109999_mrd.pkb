@@ -139,6 +139,9 @@ create or replace package body ea_k_ap2109999_mrd as
     -- Modif.: Se modifica el procedimiento p_inserta_g2000510
     --       : se agrega el cursor para que automaticamente
     --       : incluya el proceso de exclusion de polizas
+    -- Autor : CARRIERHOUSE, RGUERRA              Version : 1.20         
+    -- Fecha : 24-ene-2022                      Sismas : 
+    -- Modif.: Se agrega procedimiento P_VALIDA_GESTOR    
     -- ----------------------------------------------------------   
     --
     TYPE reg_a2109010_mrd IS RECORD
@@ -339,6 +342,170 @@ create or replace package body ea_k_ap2109999_mrd as
       END IF;
       --
     END pp_devuelve_error;
+    --
+    -- ------------------------------------------------------------
+    --
+    /**
+    || p_valida_gestor : Valida que el gestor de una poliza se mantenga luego de la pre-renovacion
+    */
+    PROCEDURE p_valida_gestor IS
+      --
+      l_fec_tratamiento       a2000500.fec_tratamiento%TYPE;
+      l_num_orden             a2000500.num_orden%TYPE;
+      l_tip_mvto_batch        a2000500.tip_mvto_batch%TYPE;
+      l_vigente_ok            BOOLEAN := FALSE;
+      l_max_spto_renovar      r2000030.num_spto%TYPE;
+      --
+      -- seleccionamos las polizas del batch
+      CURSOR c_batch IS
+        SELECT *
+          FROM a2000500 
+         WHERE cod_cia         = g_cod_cia  
+           AND cod_ramo        = g_cod_ramo 
+           AND fec_tratamiento = g_fec_tratamiento
+           AND tip_mvto_batch IN (1,2)
+           AND tip_situ       IN (3,6) 
+         ORDER BY num_poliza;  
+      --
+      -- selecciono la poliza vigente
+      CURSOR c_vigente( pc_num_poliza    a2000030.num_poliza%TYPE,
+                        pc_num_spto      a2000030.num_spto%TYPE
+                       ) IS
+        SELECT *
+          FROM a2000030 a
+         WHERE a.cod_cia  = g_cod_cia
+           AND a.cod_ramo = g_cod_ramo
+           AND a.mca_poliza_anulada = 'N'
+           AND a.tip_spto <> 'SM'
+           AND a.num_poliza = pc_num_poliza
+           AND a.num_spto = ( SELECT max(b.num_spto)
+                                FROM a2000030 b
+                               WHERE b.cod_cia    = a.cod_cia
+                                 AND b.num_poliza = a.num_poliza
+                                 AND b.mca_spto_anulado <> 'N'
+                                 AND b.tip_spto <> 'SM'
+                                 AND b.num_spto <= pc_num_spto    
+                            )
+           AND a.tip_gestor IN ('TA','DB');
+      --
+      -- resivos de la vigencia
+      CURSOR c_recibos_vigencia(pc_num_poliza    a2990700.num_poliza%TYPE,
+                                pc_num_spto      a2990700.num_spto%TYPE
+                                ) IS
+        SELECT DISTINCT cod_gestor, tip_gestor
+          FROM a2990700 
+         WHERE cod_cia    = g_cod_cia 
+           AND num_poliza = pc_num_poliza
+           AND num_spto   = pc_num_spto;                     
+      --
+      r_vigente c_vigente%ROWTYPE;
+      r_recibos c_recibos_vigencia%ROWTYPE; 
+      --
+      -- devuelve el maximo suplemento de la renovacion
+      PROCEDURE pp_max_spto_renovacion(pc_num_poliza r2000030.num_poliza%TYPE) IS
+      BEGIN 
+        --
+        SELECT max(num_spto) 
+          INTO l_max_spto_renovar
+          FROM r2000030 
+         WHERE cod_cia    = g_cod_cia
+           AND cod_ramo   = g_cod_ramo
+           AND num_poliza = pc_num_poliza;
+        --
+        EXCEPTION 
+          WHEN OTHERS THEN
+            l_max_spto_renovar := 0;
+        --    
+      END pp_max_spto_renovacion;    
+      --
+      -- evalua si se puede actualizar en funcion del gestor de los recibos
+      FUNCTION pf_gestor_valido_en_recibo( pc_num_poliza    a2990700.num_poliza%TYPE,
+                                           pc_num_spto      a2990700.num_spto%TYPE 
+                                          ) RETURN BOOLEAN IS 
+        --
+        l_tg NUMBER  := 0;
+        l_cg NUMBER  := 0;
+        --
+      BEGIN 
+        --
+        SELECT count( distinct cod_gestor ), count( distinct tip_gestor )
+          INTO l_cg, l_tg 
+          FROM a2990700 
+         WHERE cod_cia    = g_cod_cia 
+           AND num_poliza = pc_num_poliza
+           AND num_spto   = pc_num_spto;  
+        --   
+        RETURN ( l_tg = 1 AND l_cg = 1 );
+        --
+        EXCEPTION 
+          WHEN OTHERS THEN 
+            RETURN FALSE;
+        --    
+      END pf_gestor_valido_en_recibo;
+      --                                         
+    BEGIN 
+      --
+      -- recorremos las polizas del batch
+      FOR r_batch IN c_batch LOOP
+        --
+        -- 1.- se busca la poliza vigente en a2000030
+        OPEN c_vigente( r_batch.num_poliza, r_batch.num_spto );
+        FETCH c_vigente INTO r_vigente;
+        l_vigente_ok := c_vigente%FOUND;
+        CLOSE c_vigente; 
+        -- 2.- se busca la poliza listas para renovar en r2000030
+        IF l_vigente_ok THEN 
+          --
+          pp_max_spto_renovacion( r_vigente.num_poliza );
+          --
+          -- 3.- se compara los datos del gestor y forma de pago, si es diferente colocar los datos al vigente
+          UPDATE r2000030 
+             SET cod_fracc_pago  = r_vigente.cod_fracc_pago,
+                 tip_gestor      = r_vigente.tip_gestor,
+                 cod_gestor      = r_vigente.cod_gestor
+           WHERE cod_cia         = g_cod_cia
+             AND cod_ramo        = g_cod_ramo
+             AND num_poliza      = r_vigente.num_poliza 
+             AND num_spto        = l_max_spto_renovar
+             AND ( cod_fracc_pago <> r_vigente.cod_fracc_pago OR 
+                   tip_gestor     <> r_vigente.tip_gestor OR
+                   cod_gestor     <> r_vigente.cod_gestor
+                 );              
+          --  
+          -- se comparan los recibos, se valida la consistencia de la informacin
+          IF pf_gestor_valido_en_recibo( r_vigente.num_poliza, r_vigente.num_spto ) THEN
+            -- 4.- se establece la priodidad de los recibos
+            OPEN c_recibos_vigencia( r_vigente.num_poliza, r_vigente.num_spto );
+            FETCH c_recibos_vigencia INTO r_recibos;
+            IF c_recibos_vigencia%FOUND THEN
+              --
+              UPDATE r2000030 
+                 SET tip_gestor  = r_recibos.tip_gestor,
+                     cod_gestor  = r_recibos.cod_gestor
+               WHERE cod_cia         = g_cod_cia
+                 AND cod_ramo        = g_cod_ramo
+                 AND num_poliza      = r_vigente.num_poliza 
+                 AND num_spto        = r_vigente.num_spto
+                 AND ( tip_gestor   <> r_recibos.tip_gestor OR
+                       cod_gestor   <> r_recibos.cod_gestor
+                     );        
+              --
+            END IF;
+            CLOSE c_recibos_vigencia;   
+            --
+          END IF;
+          --   
+        END IF;
+        --
+      END LOOP;
+      --
+      EXCEPTION 
+        WHEN OTHERS THEN
+            g_cod_mensaje_cp := SQLCODE;
+            g_anx_mensaje := SQLERRM(SQLCODE);
+            pp_devuelve_error;
+            --
+    END p_valida_gestor;
     --
     -- ------------------------------------------------------------
     --

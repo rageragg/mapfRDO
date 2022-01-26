@@ -31,7 +31,7 @@ DECLARE
     CURSOR c_a2000030(  pc_num_poliza    a2000030.num_poliza%TYPE,
                         pc_num_spto      a2000030.num_spto%TYPE,
                         pc_num_apli      a2000030.num_apli%TYPE,
-                        pc_num_apli_spto a2000030.num_apli_spto%TYPE
+                        pc_num_spto_apli a2000030.num_spto_apli%TYPE
                      ) IS
         SELECT *
           FROM a2000030 a
@@ -39,14 +39,14 @@ DECLARE
             AND num_poliza         = pc_num_poliza
             AND num_spto           = pc_num_spto
             AND num_apli           = pc_num_apli
-            AND num_apli_spto      = pc_num_apli_spto
+            AND num_spto_apli      = pc_num_spto_apli
             AND tip_gestor        IN ( 'TA', 'DB' );
-    --
-    -- seleccionamos las polizas listas para renovar
-    CURSOR c_r2000030(  pc_num_poliza   r2000030.num_poliza%TYPE,
-                        pc_num_spto     r2000030.num_spto%TYPE,
-                        pc_num_apli     r2000030.num_apli%TYPE,
-                       pc_num_apli_spto r2000030.num_apli_spto%TYPE 
+    -- --
+    -- -- seleccionamos las polizas listas para renovar
+    CURSOR c_r2000030(  pc_num_poliza    r2000030.num_poliza%TYPE,
+                        pc_num_spto      r2000030.num_spto%TYPE,
+                        pc_num_apli      r2000030.num_apli%TYPE,
+                        pc_num_spto_apli r2000030.num_spto_apli%TYPE 
                      ) IS
         SELECT *
           FROM r2000030 a
@@ -54,13 +54,13 @@ DECLARE
             AND num_poliza         = pc_num_poliza
             AND num_spto           = pc_num_spto
             AND num_apli           = pc_num_apli
-            AND num_apli_spto      = pc_num_apli_spto;     
+            AND num_spto_apli      = pc_num_spto_apli;     
     --
     -- seleccionamos los recibos antes de la renovacion
     CURSOR c_a2990700(  pc_num_poliza    a2000030.num_poliza%TYPE,
                         pc_num_spto      a2000030.num_spto%TYPE,
                         pc_num_apli      a2000030.num_apli%TYPE,
-                        pc_num_apli_spto a2000030.num_apli_spto%TYPE
+                        pc_num_spto_apli a2000030.num_spto_apli%TYPE
                      ) IS
         SELECT *
           FROM a2990700 a
@@ -68,13 +68,13 @@ DECLARE
             AND num_poliza         = pc_num_poliza
             AND num_spto           = pc_num_spto
             AND num_apli           = pc_num_apli
-            AND num_apli_spto      = pc_num_apli_spto;
-    --   
-    -- seleccionamos los recibos para renovar
+            AND num_spto_apli      = pc_num_spto_apli;
+    -- --   
+    -- -- seleccionamos los recibos para renovar
     CURSOR c_r2990700(  pc_num_poliza    a2000030.num_poliza%TYPE,
                         pc_num_spto      a2000030.num_spto%TYPE,
                         pc_num_apli      a2000030.num_apli%TYPE,
-                        pc_num_apli_spto a2000030.num_apli_spto%TYPE,
+                        pc_num_spto_apli a2000030.num_spto_apli%TYPE,
                         pc_num_recibo    r2990700.num_recibo%TYPE
                      ) IS
         SELECT *
@@ -83,7 +83,7 @@ DECLARE
             AND num_poliza         = pc_num_poliza
             AND num_spto           = pc_num_spto
             AND num_apli           = pc_num_apli
-            AND num_apli_spto      = pc_num_apli_spto
+            AND num_spto_apli      = num_spto_apli
             AND num_recibo         = pc_num_recibo;
     --     
     r_reno  c_r2000030%ROWTYPE;
@@ -95,12 +95,12 @@ DECLARE
         --
         UPDATE r2000030
            SET tip_gestor = p_orig.tip_gestor,
-               tip_gestor = p_orig.cod_gestor
+               cod_gestor = p_orig.cod_gestor
          WHERE cod_cia            = r_reno.cod_cia
            AND num_poliza         = r_reno.num_poliza
            AND num_spto           = r_reno.num_spto
            AND num_apli           = r_reno.num_apli
-           AND num_apli_spto      = r_reno.num_apli_spto;
+           AND num_spto_apli      = r_reno.num_spto_apli;
         --
         EXCEPTION
             WHEN NO_DATA_FOUND THEN 
@@ -115,15 +115,18 @@ DECLARE
     PROCEDURE pp_modificar_rrecibos( p_orig c_a2990700%ROWTYPE ) IS 
     BEGIN 
         --
+        -- asociados a la poliza
         UPDATE r2990700
            SET tip_gestor = p_orig.tip_gestor,
-               tip_gestor = p_orig.cod_gestor
+               cod_gestor = p_orig.cod_gestor
          WHERE cod_cia            = p_orig.cod_cia
            AND num_poliza         = p_orig.num_poliza
            AND num_spto           = p_orig.num_spto
            AND num_apli           = p_orig.num_apli
-           AND num_apli_spto      = p_orig.num_apli_spto
+           AND num_spto_apli      = p_orig.num_spto_apli
            AND num_recibo         = p_orig.num_recibo;
+        --
+        -- modificar los recibos en el hitorico
         --
         EXCEPTION
             WHEN NO_DATA_FOUND THEN 
@@ -137,44 +140,45 @@ DECLARE
 BEGIN
     --
     -- seleccionamos las polizas para su verificacion
-    FOR r_batch IN c_a2000500 LOOP
-        --
-        -- seleccionamos los datos originales de la poliza
-        FOR r_orig IN c_a2000030( r_batch.num_poliza, r_batch.num_spto, r_batch.num_apli, r_batch.num_apli_spto ) LOOP 
-            --
-            -- comparamos los datos originales con los datos del batch
-            OPEN c_r2000030( r_orig.num_poliza, r_orig.num_spto, r_orig.num_apli, r_orig.num_apli_spto );
-            FETCH c_r2000030 INTO r_reno;
-            IF c_r2000030%FOUND THEN
-                IF r_reno.tip_gestor != r_orig.tip_gestor OR r_reno.cod_gestor != r_orig.cod_gestor THEN 
-                    --
-                    -- se aplica el cambio
-                    pp_modificar_rpoliza( p_orig => r_orig );
-                    --
-                END IF;
-            END IF;
-            CLOSE c_r2000030;
-            --
-            -- seleccionamos los recibos originales de la poliza
-            FOR r_rorig IN c_a2990700( r_orig.num_poliza, r_orig.num_spto, r_orig.num_apli, r_orig.num_apli_spto ) LOOP  
-                --
-                -- comparamos los datos originales con los datos del batch
-                OPEN c_r2990700( r_rorig.num_poliza, r_rorig.num_spto, r_rorig.num_apli, r_rorig.num_apli_spto, r_rorig.num_recibo );
-                FETCH c_r2990700 INTO r_reci;
-                IF c_r2990700%FOUND THEN
-                    IF r_reci.tip_gestor != r_rorig.tip_gestor OR r_rorig.cod_gestor != r_rorig.cod_gestor THEN 
-                        --
-                        -- se aplica el cambio
-                        pp_modificar_rrecibos( p_orig => r_rorig );
-                        --
-                    END IF;
-                END IF;
-                CLOSE c_r2990700;
-                --
-            END LOOP;
-            --
-        END LOOP;
-        --
-    END LOOP;
+    -- FOR r_batch IN c_a2000500 LOOP
+    --     --
+    --     -- seleccionamos los datos originales de la poliza
+    --     FOR r_orig IN c_a2000030( r_batch.num_poliza, r_batch.num_spto, r_batch.num_apli, r_batch.num_spto_apli ) LOOP 
+    --         --
+    --         -- comparamos los datos originales con los datos del batch
+    --         OPEN c_r2000030( r_orig.num_poliza, r_orig.num_spto, r_orig.num_apli, r_orig.num_spto_apli );
+    --         FETCH c_r2000030 INTO r_reno;
+    --         IF c_r2000030%FOUND THEN
+    --             IF r_reno.tip_gestor != r_orig.tip_gestor OR r_reno.cod_gestor != r_orig.cod_gestor THEN 
+    --                 --
+    --                 -- se aplica el cambio
+    --                 pp_modificar_rpoliza( p_orig => r_orig );
+    --                 --
+    --             END IF;
+    --         END IF;
+    --         CLOSE c_r2000030;
+    --         --
+    --         -- seleccionamos los recibos originales de la poliza
+    --         FOR r_rorig IN c_a2990700( r_orig.num_poliza, r_orig.num_spto, r_orig.num_apli, r_orig.num_spto_apli ) LOOP  
+    --             --
+    --             -- comparamos los datos originales con los datos del batch
+    --             OPEN c_r2990700( r_rorig.num_poliza, r_rorig.num_spto, r_rorig.num_apli, r_rorig.num_spto_apli, r_rorig.num_recibo );
+    --             FETCH c_r2990700 INTO r_reci;
+    --             IF c_r2990700%FOUND THEN
+    --                 IF r_reci.tip_gestor != r_rorig.tip_gestor OR r_rorig.cod_gestor != r_rorig.cod_gestor THEN 
+    --                     --
+    --                     -- se aplica el cambio
+    --                     pp_modificar_rrecibos( p_orig => r_rorig );
+    --                     --
+    --                 END IF;
+    --             END IF;
+    --             CLOSE c_r2990700;
+    --             --
+    --         END LOOP;
+    --         --
+    --     END LOOP;
+    --     --
+    -- END LOOP;
     --
+    NULL;
 END;
